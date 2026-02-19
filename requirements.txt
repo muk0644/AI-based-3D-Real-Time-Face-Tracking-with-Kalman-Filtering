@@ -1,0 +1,7 @@
+dearpygui
+opencv-python
+numpy
+matplotlib
+mediapipe==0.10.32
+scipy
+ultralytics
