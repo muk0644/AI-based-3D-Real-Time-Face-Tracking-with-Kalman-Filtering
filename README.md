@@ -46,73 +46,130 @@ graph LR
 ### Processing Flow Diagram
 
 ```mermaid
-flowchart TD
-    Start([Start Application]) --> Init[Initialize Components]
-    Init --> Calib{Camera<br/>Calibrated?}
-    Calib -->|No| CalibProcess[Run Calibration<br/>with Chessboard]
-    CalibProcess --> LoadCalib[Load Camera Matrix K<br/>Distortion Coefficients]
-    Calib -->|Yes| LoadCalib
+flowchart TB
+    Start([🚀 Start Application]) --> Init[⚙️ Initialize System Components<br/>Camera, GUI, Performance Monitor]
     
-    LoadCalib --> CreateKF[Initialize Kalman Filter<br/>State: x, y, z]
-    CreateKF --> MainLoop{Main Loop}
+    Init --> Calib{📷 Camera<br/>Calibrated?}
+    Calib -->|❌ No| CalibProcess[🎯 Run Calibration Process<br/>Chessboard Pattern Detection]
+    CalibProcess --> LoadCalib[📂 Load Calibration Data<br/>• Camera Matrix K<br/>• Distortion Coefficients]
+    Calib -->|✅ Yes| LoadCalib
     
-    MainLoop --> Capture[Capture Frame]
-    Capture --> Undistort[Apply Lens Correction<br/>Using Calibration Maps]
-    Undistort --> Detect[Detect Face<br/>Get Bounding Box]
+    LoadCalib --> InitKF[🔮 Initialize Kalman Filter<br/>State: x, y, z<br/>Covariance: P]
+    InitKF --> SetupModels[🤖 Load Detection Models<br/>HaarCascade/MediaPipe/YOLO/DNN]
     
-    Detect -->|Face Found| Calc3D[Calculate 3D Position<br/>X, Y: Pinhole Camera<br/>Z: Known Face Width]
-    Detect -->|No Face| MainLoop
+    SetupModels --> MainLoop{🔄 Main Processing Loop}
     
-    Calc3D --> KFPredict[Kalman Prediction Step]
-    KFPredict --> KFUpdate[Kalman Update Step<br/>With Measurement]
-    KFUpdate --> Draw[Draw Bounding Boxes<br/>Blue: Raw | Green: Prediction | Red: Filtered]
-    Draw --> Record[Record Metrics<br/>FPS, Position, Jitter]
-    Record --> Display[Display Frame]
-    Display --> Check{Continue?}
+    MainLoop --> StartTimer[⏱️ Start Frame Timer]
+    StartTimer --> Capture[📹 Capture Raw Frame<br/>1920×1080 HD]
+    Capture --> Undistort[🔧 Apply Lens Correction<br/>Using Pre-computed Maps]
     
-    Check -->|Yes| MainLoop
-    Check -->|No| Save[Save Benchmark Results<br/>JSON Format]
-    Save --> End([End])
+    Undistort --> StartDetection[⏱️ Start Detection Timer]
+    StartDetection --> Detect[🎯 Face Detection<br/>Algorithm-Specific Method]
+    Detect --> EndDetection[⏱️ End Detection Timer]
     
-    style Detect fill:#ffeb3b
-    style Calc3D fill:#ff9800
-    style KFPredict fill:#9c27b0
-    style KFUpdate fill:#9c27b0
-    style Save fill:#4caf50
+    EndDetection --> FaceFound{Face<br/>Detected?}
+    
+    FaceFound -->|❌ No Face| RecordEmpty[📊 Record Frame<br/>Detection: False]
+    RecordEmpty --> MainLoop
+    
+    FaceFound -->|✅ Found| Extract[📐 Extract Bounding Box<br/>u0, v0, u1, v1]
+    Extract --> Calc3D[🧮 Calculate 3D Position<br/>X = u-cx × Z/fx<br/>Y = v-cy × Z/fy<br/>Z = Face_Width × fx / bbox_width]
+    
+    Calc3D --> DrawRaw[🔵 Draw Raw Detection<br/>Blue Bounding Box]
+    DrawRaw --> KFPredict[🔮 Kalman Prediction<br/>x̂⁻ = A·x̂<br/>P⁻ = A·P·Aᵀ + Q]
+    
+    KFPredict --> DrawPred[🟢 Draw Prediction<br/>Green Bounding Box]
+    DrawPred --> KFUpdate[🔮 Kalman Update<br/>K = P⁻·Hᵀ·Hᵀ·P⁻·Hᵀ + R⁻¹<br/>x̂ = x̂⁻ + K·z - H·x̂⁻<br/>P = I - K·H·P⁻]
+    
+    KFUpdate --> DrawFiltered[🔴 Draw Filtered Position<br/>Red Bounding Box]
+    DrawFiltered --> AddText[📝 Add Position Text<br/>Raw & Filtered Coordinates]
+    
+    AddText --> UpdatePlot[📈 Update Real-time Plot<br/>XYZ Curves 6 Lines]
+    UpdatePlot --> RecordMetrics[📊 Record Performance<br/>• FPS<br/>• Position<br/>• Jitter<br/>• Stability]
+    
+    RecordMetrics --> SaveFrame[💾 Save to Video Writer<br/>MP4 Format]
+    SaveFrame --> DisplayWindows[🖥️ Display Windows<br/>OpenCV: Video<br/>DearPyGUI: Plots]
+    
+    DisplayWindows --> CheckKey{⌨️ Key Press?}
+    CheckKey -->|Q| SaveResults[💾 Save Benchmark Results<br/>JSON + Summary]
+    CheckKey -->|None| EndTimer[⏱️ End Frame Timer]
+    EndTimer --> MainLoop
+    
+    SaveResults --> Cleanup[🧹 Cleanup Resources<br/>Release Camera<br/>Close Windows<br/>Destroy GUI Context]
+    Cleanup --> PrintSummary[📋 Print Final Summary<br/>FPS, Detection Rate<br/>Stability, Smoothness]
+    PrintSummary --> End([🏁 End Application])
+    
+    style Start fill:#4caf50,stroke:#2e7d32,stroke-width:3px,color:#fff
+    style Detect fill:#ffeb3b,stroke:#f57f17,stroke-width:2px
+    style Calc3D fill:#ff9800,stroke:#e65100,stroke-width:2px
+    style KFPredict fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#fff
+    style KFUpdate fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#fff
+    style SaveResults fill:#2196f3,stroke:#1565c0,stroke-width:2px,color:#fff
+    style End fill:#f44336,stroke:#c62828,stroke-width:3px,color:#fff
 ```
 
 ### Face Detection Methods Comparison
 
 ```mermaid
 graph TB
-    subgraph HaarCascade["🎭 HaarCascade (Classical CV)"]
-        HC1[Sliding Window] --> HC2[Haar Features]
-        HC2 --> HC3[AdaBoost Cascade]
-        HC3 --> HC4[Binary Classification]
+    Input[📹 Input Frame<br/>1920×1080]
+    
+    Input --> HC[🎭 HaarCascade]
+    Input --> MP[🧠 MediaPipe]
+    Input --> YL[🚀 YOLOv8]
+    Input --> DN[🔬 OpenCV DNN]
+    
+    subgraph HaarCascade["🎭 HaarCascade - Classical Computer Vision"]
+        HC --> HC1[📐 Sliding Window<br/>Multiple Scales]
+        HC1 --> HC2[🔲 Haar Feature Extraction<br/>Edge, Line, Diagonal]
+        HC2 --> HC3[🌲 AdaBoost Cascade<br/>20+ Stages]
+        HC3 --> HC4[✅ Binary Classification<br/>Face / Non-Face]
+        HC4 --> HCOut[📊 Output: Bounding Box<br/>⚡ 5.0 FPS<br/>🎯 71% Detection<br/>⚖️ ~950KB Model]
     end
     
-    subgraph MediaPipe["🧠 MediaPipe (ML Pipeline)"]
-        MP1[BlazeFace Model] --> MP2[Optimized CNN]
-        MP2 --> MP3[Mobile-First Design]
-        MP3 --> MP4[High-Speed Detection]
+    subgraph MediaPipe["🧠 MediaPipe - Optimized ML Pipeline"]
+        MP --> MP1[🔥 BlazeFace Model<br/>Depthwise Separable Conv]
+        MP1 --> MP2[🚀 Mobile-Optimized CNN<br/>128×128 Input Resolution]
+        MP2 --> MP3[🎯 Anchor-Based Detection<br/>6 Anchors]
+        MP3 --> MP4[📦 Non-Maximum Suppression<br/>IoU Threshold]
+        MP4 --> MPOut[📊 Output: Relative Coordinates<br/>⚡ 19.5 FPS<br/>🎯 97.3% Detection<br/>⚖️ ~1.5MB Model]
     end
     
-    subgraph YOLOv8["🚀 YOLOv8-Face (Grid-Based)"]
-        Y1[Divide Image into Grid] --> Y2[CNN Per Grid Cell]
-        Y2 --> Y3[Confidence Scoring]
-        Y3 --> Y4[Robust Detection]
+    subgraph YOLOv8["🚀 YOLOv8-Face - Grid-Based Single Shot"]
+        YL --> Y1[🔷 Image Grid Division<br/>52×52 / 26×26 / 13×13]
+        Y1 --> Y2[🧠 CSPDarknet Backbone<br/>Feature Extraction]
+        Y2 --> Y3[🔗 Path Aggregation Network<br/>Multi-Scale Features]
+        Y3 --> Y4[🎯 Detection Head<br/>Class + BBox + Confidence]
+        Y4 --> YOut[📊 Output: x,y,w,h + conf<br/>⚡ 3.4 FPS CPU 30+ GPU<br/>🎯 100% Detection<br/>⚖️ ~6MB Model]
     end
     
-    subgraph OpenCVDNN["🔬 OpenCV DNN (ResNet SSD)"]
-        D1[ResNet-10 Backbone] --> D2[SSD Detection Head]
-        D2 --> D3[Multi-Scale Features]
-        D3 --> D4[Balanced Performance]
+    subgraph OpenCVDNN["🔬 OpenCV DNN - Deep Neural Network"]
+        DN --> D1[🏗️ ResNet-10 Backbone<br/>10 Residual Layers]
+        D1 --> D2[📦 SSD Detection Head<br/>Single Shot MultiBox]
+        D2 --> D3[🔢 Confidence Scoring<br/>300×300 Input]
+        D3 --> D4[🎯 Location Regression<br/>Default Boxes]
+        D4 --> DOut[📊 Output: conf + location<br/>⚡ 9.5 FPS<br/>🎯 97.3% Detection<br/>⚖️ ~10MB Model]
     end
     
-    style HaarCascade fill:#e3f2fd
-    style MediaPipe fill:#f3e5f5
-    style YOLOv8 fill:#fff3e0
-    style OpenCVDNN fill:#e8f5e9
+    HCOut --> Compare[⚖️ Comparison]
+    MPOut --> Compare
+    YOut --> Compare
+    DOut --> Compare
+    
+    Compare --> Winner1[🥇 Speed: MediaPipe 19.5 FPS]
+    Compare --> Winner2[🥇 Accuracy: YOLOv8 100%]
+    Compare --> Winner3[🥇 Smoothness: OpenCV DNN]
+    Compare --> Winner4[🥇 Lightweight: HaarCascade]
+    
+    style HaarCascade fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style MediaPipe fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px
+    style YOLOv8 fill:#fff3e0,stroke:#f57f17,stroke-width:2px
+    style OpenCVDNN fill:#e8f5e9,stroke:#388e3c,stroke-width:2px
+    style Compare fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style Winner1 fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#fff
+    style Winner2 fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#fff
+    style Winner3 fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#fff
+    style Winner4 fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#fff
 ```
 
 ---
@@ -382,16 +439,83 @@ HaarCascade: ████████             101mm avg jitter ⚠️ Jitter
 
 ### 📊 Comprehensive Comparison Table
 
-```
-╔════════════════╦════════════╦═══════╦════════════╦═════════════╦═══════════════╗
-║ Method         ║ Detection  ║  FPS  ║ Stability  ║  Smoothness ║ KF Improvement║
-╠════════════════╬════════════╬═══════╬════════════╬═════════════╬═══════════════╣
-║ MediaPipe      ║   97.3% ⭐  ║ 19.5⚡║  297mm     ║   51mm      ║     33%       ║
-║ OpenCV DNN     ║   97.3% ⭐  ║  9.5  ║  284mm ⭐   ║   30mm ⭐    ║     24%       ║
-║ YOLOv8         ║  100.0% ⭐⭐ ║  3.4  ║  237mm ⭐⭐  ║   44mm      ║     22%       ║
-║ HaarCascade    ║   71.0%    ║  5.0  ║  373mm     ║  101mm      ║     56% ⭐⭐⭐   ║
-╚════════════════╩════════════╩═══════╩════════════╩═════════════╩═══════════════╝
-```
+| 🏆 Rank | Method | Detection Rate | Avg FPS | Stability (σ) | Smoothness (jitter) | KF Improvement | Overall Grade |
+|:-------:|--------|:--------------:|:-------:|:-------------:|:-------------------:|:--------------:|:-------------:|
+| **🥇 1st** | **MediaPipe** | 97.3% ⭐⭐⭐⭐ | **19.5** ⚡⚡⚡ | 297mm ⭐⭐⭐ | 51mm ⭐⭐⭐ | 33% ⭐⭐⭐ | **A** |
+| **🥈 2nd** | **OpenCV DNN** | 97.3% ⭐⭐⭐⭐ | 9.5 ⚡⚡ | **284mm** ⭐⭐⭐⭐ | **30mm** ⚡⚡⚡⚡ | 24% ⭐⭐ | **A-** |
+| **🥉 3rd** | **YOLOv8-Face** | **100%** ⭐⭐⭐⭐⭐ | 3.4 ⚡ | **237mm** ⚡⚡⚡⚡⚡ | 44mm ⭐⭐⭐⭐ | 22% ⭐⭐ | **B+** |
+| **4th** | **HaarCascade** | 71.0% ⭐⭐ | 5.0 ⚡ | 373mm ⭐ | 101mm ⭐ | **56%** ⚡⚡⚡⚡⚡ | **C** |
+
+#### 📈 Detailed Performance Breakdown
+
+<table>
+<thead>
+<tr>
+<th align="center">Method</th>
+<th align="center">🎯 Detection<br/>Reliability</th>
+<th align="center">⚡ Processing<br/>Speed</th>
+<th align="center">📐 Position<br/>Stability</th>
+<th align="center">🌊 Tracking<br/>Smoothness</th>
+<th align="center">🔮 Kalman<br/>Effect</th>
+<th align="center">📦 Model<br/>Size</th>
+<th align="center">💡 Best For</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="center"><strong>🧠 MediaPipe</strong></td>
+<td align="center">97.3%<br/><sub>10 gaps</sub></td>
+<td align="center"><strong>19.5 FPS</strong><br/><sub>51ms/frame</sub></td>
+<td align="center">297mm<br/><sub>Good</sub></td>
+<td align="center">51mm<br/><sub>Good</sub></td>
+<td align="center">33%<br/><sub>Good</sub></td>
+<td align="center">~1.5MB<br/><sub>Tiny</sub></td>
+<td align="center">VR/AR<br/>Gaming<br/>Live Apps</td>
+</tr>
+<tr>
+<td align="center"><strong>🔬 OpenCV DNN</strong></td>
+<td align="center">97.3%<br/><sub>3 gaps</sub></td>
+<td align="center">9.5 FPS<br/><sub>105ms/frame</sub></td>
+<td align="center">284mm<br/><sub>Excellent</sub></td>
+<td align="center"><strong>30mm</strong><br/><sub>⭐ Best</sub></td>
+<td align="center">24%<br/><sub>Moderate</sub></td>
+<td align="center">~10MB<br/><sub>Medium</sub></td>
+<td align="center">Robotics<br/>HCI<br/>General</td>
+</tr>
+<tr>
+<td align="center"><strong>🚀 YOLOv8-Face</strong></td>
+<td align="center"><strong>100%</strong><br/><sub>⭐ Perfect</sub></td>
+<td align="center">3.4 FPS<br/><sub>294ms/frame<br/>30+ w/ GPU</sub></td>
+<td align="center"><strong>237mm</strong><br/><sub>⭐ Best</sub></td>
+<td align="center">44mm<br/><sub>Very Good</sub></td>
+<td align="center">22%<br/><sub>Moderate</sub></td>
+<td align="center">~6MB<br/><sub>Small</sub></td>
+<td align="center">Medical<br/>Research<br/>Accuracy</td>
+</tr>
+<tr>
+<td align="center"><strong>🎭 HaarCascade</strong></td>
+<td align="center">71.0%<br/><sub>16 gaps</sub></td>
+<td align="center">5.0 FPS<br/><sub>200ms/frame</sub></td>
+<td align="center">373mm<br/><sub>Fair</sub></td>
+<td align="center">101mm<br/><sub>Noisy</sub></td>
+<td align="center"><strong>56%</strong><br/><sub>⭐ Highest</sub></td>
+<td align="center">~900KB<br/><sub>Minimal</sub></td>
+<td align="center">Embedded<br/>Legacy<br/>Educational</td>
+</tr>
+</tbody>
+</table>
+
+#### 🎯 Winner by Category
+
+| Category | 🥇 Winner | 🥈 Runner-up | 📊 Metric |
+|----------|-----------|--------------|-----------|
+| **⚡ Speed (Real-time)** | MediaPipe | OpenCV DNN | 19.5 FPS vs 9.5 FPS |
+| **🎯 Detection Rate** | YOLOv8 | MediaPipe & DNN | 100% vs 97.3% |
+| **📐 Stability (Low σ)** | YOLOv8 | OpenCV DNN | 237mm vs 284mm |
+| **🌊 Smoothness (Low Jitter)** | OpenCV DNN | YOLOv8 | 30mm vs 44mm |
+| **🔮 Kalman Benefit** | HaarCascade | MediaPipe | 56% vs 33% reduction |
+| **📦 Lightweight** | HaarCascade | MediaPipe | 0.9MB vs 1.5MB |
+| **⚖️ Overall Balance** | MediaPipe | OpenCV DNN | Speed + Accuracy |
 
 ---
 
@@ -707,73 +831,107 @@ confidence_threshold=0.4  # Default: 0.5
 ```
 Real-Time-Face-Tracking-Benchmark-with-Kalman-Filtering/
 │
-├── 📄 README.md                          # This file
-├── 📄 requirements.txt                   # Python dependencies
+├── 📄 README.md                          # Comprehensive documentation
+├── 📄 requirements.txt                   # Python dependencies (7 packages)
 ├── 📄 LICENSE                            # MIT License
-├── 📄 camera_calibration.py              # Camera calibration script
+├── 📄 .gitignore                         # Git ignore rules
 │
-├── 🔬 Core Detection Scripts
-│   ├── 01_face_track_harrcascade.py      # Haar Cascade + Kalman
-│   ├── 02_face_track_mediapipe.py        # MediaPipe + Kalman
-│   ├── 03_face_track_yolo.py             # YOLOv8-Face + Kalman
-│   └── 04_face_track_open_cv_dnn.py      # OpenCV DNN + Kalman
+├── 🔬 Core Detection Scripts (4 methods)
+│   ├── 01_face_track_harrcascade.py      # HaarCascade + Kalman (446 lines)
+│   ├── 02_face_track_mediapipe.py        # MediaPipe + Kalman (431 lines)
+│   ├── 03_face_track_yolo.py             # YOLOv8-Face + Kalman (586 lines)
+│   └── 04_face_track_open_cv_dnn.py      # OpenCV DNN + Kalman (586 lines)
 │
-├── 📊 Analysis Scripts
-│   └── 05_compare_runtime_results.py     # Benchmark comparison tool
+├── 📊 Analysis & Comparison
+│   └── 05_compare_runtime_results.py     # Benchmark aggregation tool (323 lines)
 │
-├── 🛠️ Utils/                             # Utility modules
-│   ├── lin_kalman.py                     # Linear Kalman Filter implementation
-│   ├── Dataplot.py                       # Real-time plotting (DearPyGUI)
-│   ├── performance_monitor.py            # Metrics collection & analysis
-│   └── __pycache__/                      # Python cache
+├── 🛠️ Utils/                             # Utility modules (802 total lines)
+│   ├── lin_kalman.py                     # Linear Kalman Filter (233 lines)
+│   │                                     #   • State prediction & update
+│   │                                     #   • Covariance computation
+│   ├── Dataplot.py                       # Real-time plotting (179 lines)
+│   │                                     #   • DearPyGUI integration
+│   │                                     #   • 6-curve visualization
+│   ├── performance_monitor.py            # Metrics tracking (390 lines)
+│   │                                     #   • FPS calculation
+│   │                                     #   • Detection rate analysis
+│   │                                     #   • JSON export
+│   └── __pycache__/                      # Python bytecode cache
+│       ├── lin_kalman.cpython-*.pyc
+│       ├── Dataplot.cpython-*.pyc
+│       └── performance_monitor.cpython-*.pyc
 │
-├── 🤖 Models/                            # Pre-trained models
-│   ├── yolov8n-face.pt                   # YOLOv8 face detection model (~6MB)
-│   ├── res10_300x300_ssd_iter_140000.caffemodel  # OpenCV DNN model (~10MB)
-│   └── deploy.prototxt                   # DNN architecture config
+├── 🤖 Models/                            # Pre-trained models (~16MB total)
+│   ├── yolov8n-face.pt                   # YOLOv8 nano (6.2 MB)
+│   ├── res10_300x300_ssd_iter_140000.caffemodel  # Caffe SSD (10.1 MB)
+│   └── deploy.prototxt                   # SSD architecture (1,790 lines)
 │
 ├── 📂 Data/                              # Calibration data
-│   ├── calibration_data.pkl              # Camera matrix & distortion coeffs
-│   └── chessboard_images/                # Calibration images (optional)
+│   └── calibration_data.pkl              # Camera matrix K, distortion coeffs
+│                                         # (3×3 matrix + 5 distortion params)
 │
-├── 📊 Results/                           # Output files
+├── 📊 Results/                           # Benchmark outputs
 │   ├── Benchmarks/                       # Performance JSON files
-│   │   ├── HaarCascade_benchmark_YYYYMMDD_HHMMSS.json
-│   │   ├── MediaPipe_benchmark_YYYYMMDD_HHMMSS.json
-│   │   ├── YOLOv8_benchmark_YYYYMMDD_HHMMSS.json
-│   │   ├── OpenCV_DNN_benchmark_YYYYMMDD_HHMMSS.json
-│   │   └── comparison_report_YYYYMMDD_HHMMSS.json
+│   │   ├── HaarCascade_benchmark_20260216_215541.json    # 58 lines
+│   │   ├── MediaPipe_benchmark_20260216_215714.json      # 58 lines
+│   │   ├── YOLOv8_benchmark_20260216_215930.json         # 58 lines
+│   │   ├── OpenCV_DNN_benchmark_20260216_220054.json     # 58 lines
+│   │   └── comparison_report_20260216_220104.json        # 243 lines
 │   │
-│   ├── 🎬 Demo Videos/GIFs
-│   │   ├── mediapipe_tracking_demo.gif
-│   │   ├── dnn_tracking_demo.gif
-│   │   └── yolov8_tracking_demo.gif
+│   ├── 🎬 Demo Videos/GIFs               # Live tracking demonstrations
+│   │   ├── mediapipe_tracking_demo.gif   # MediaPipe visualization
+│   │   ├── yolov8_tracking_demo.gif      # YOLOv8 visualization
+│   │   └── dnn_tracking_demo.gif         # OpenCV DNN visualization
 │   │
-│   └── 📈 Plots
-│       ├── haar_tracking_plot.png
-│       ├── mediapipe_tracking_plot.png
-│       ├── yolov8_tracking_plot.png
-│       └── dnn_tracking_plot.png
+│   └── 📈 Performance Plots              # Position tracking graphs
+│       ├── haar_tracking_plot.png        # X, Y, Z plots (HaarCascade)
+│       ├── mediapipe_tracking_plot.png   # X, Y, Z plots (MediaPipe)
+│       ├── yolov8_tracking_plot.png      # X, Y, Z plots (YOLOv8)
+│       └── dnn_tracking_plot.png         # X, Y, Z plots (OpenCV DNN)
 │
-└── 🐍 face_detection/                    # Virtual environment (not in repo)
-    ├── Scripts/                          # Windows
-    ├── bin/                              # Linux/macOS
-    └── Lib/site-packages/                # Installed packages
+└── 🐍 face_detection/                    # Virtual environment (excluded from git)
+    ├── Scripts/                          # Windows executables
+    │   ├── python.exe
+    │   ├── pip.exe
+    │   └── activate.bat
+    ├── Lib/site-packages/                # Installed packages
+    │   ├── cv2/                          # OpenCV 4.13.0
+    │   ├── mediapipe/                    # MediaPipe 0.10.32
+    │   ├── ultralytics/                  # YOLOv8 framework
+    │   ├── numpy/                        # NumPy 2.4.2
+    │   ├── dearpygui/                    # DearPyGUI 2.2
+    │   ├── scipy/                        # SciPy 1.17.0
+    │   └── ...                           # Other dependencies
+    └── pyvenv.cfg                        # Virtual env configuration
 ```
 
-### Key Files Explained
+### 📋 Key Files Explained
 
-| File | Purpose | Key Features |
-|------|---------|--------------|
-| `lin_kalman.py` | Kalman filter implementation | Linear state estimation, predict-update cycle |
-| `performance_monitor.py` | Metrics collection | Tracks FPS, detection rate, stability, jitter |
-| `Dataplot.py` | Real-time visualization | DearPyGUI-based plotting (6 curves) |
-| `calibration_data.pkl` | Camera parameters | K matrix, focal length, distortion coefficients |
-| `comparison_report_*.json` | Benchmark results | All 5 metrics for all 4 methods |
+| Category | File | Purpose | Size/Lines | Key Features |
+|----------|------|---------|------------|--------------|
+| **Core** | `lin_kalman.py` | Kalman filter engine | 233 lines | State prediction, update cycle, covariance |
+| **Core** | `performance_monitor.py` | Metrics tracker | 390 lines | FPS, detection rate, jitter, JSON export |
+| **Core** | `Dataplot.py` | Real-time GUI | 179 lines | DearPyGUI plots, 6-curve display |
+| **Data** | `calibration_data.pkl` | Camera params | Binary | K matrix (3×3), distortion coeffs (5 params) |
+| **Data** | `comparison_report_*.json` | Benchmark results | 243 lines | All 5 metrics for 4 methods |
+| **Model** | `yolov8n-face.pt` | YOLO weights | 6.2 MB | PyTorch model, 100% detection |
+| **Model** | `res10_300x300_ssd_iter_140000.caffemodel` | DNN weights | 10.1 MB | Caffe model, 97.3% detection |
+| **Model** | `deploy.prototxt` | DNN architecture | 1,790 lines | ResNet-10 SSD config |
+
+### 📦 Dependencies Summary
+
+| Package | Version | Purpose | Size |
+|---------|---------|---------|------|
+| opencv-python | 4.13.0 | Computer vision | ~87 MB |
+| mediapipe | 0.10.32 | Face detection | ~37 MB |
+| ultralytics | Latest | YOLOv8 framework | ~48 MB |
+| numpy | 2.4.2 | Numerical computing | ~23 MB |
+| dearpygui | 2.2 | GUI & plotting | ~12 MB |
+| scipy | 1.17.0 | Scientific computing | ~68 MB |
 
 ---
 
-## � Common Issues & Troubleshooting
+## 🚨 Common Issues & Troubleshooting
 
 ### Camera Calibration Issues
 
